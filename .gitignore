@@ -15,8 +15,7 @@ __pycache__/
 .venv/
 venv/
 
-# VectorDB (generated)
-data/chroma_db/
+
 
 # Temporary files
 *.tmp

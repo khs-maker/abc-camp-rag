@@ -95,6 +95,78 @@ def load_chroma_collection():
         return None
 
 
+def build_vectordb_if_needed():
+    """벡터 DB가 없으면 CSV 데이터로 자동 구축한다."""
+    if os.path.exists(CHROMA_DIR):
+        client = chromadb.PersistentClient(path=CHROMA_DIR)
+        try:
+            col = client.get_collection(COLLECTION_NAME)
+            if col.count() > 0:
+                return True
+        except Exception:
+            pass
+
+    csv_path = PATH_WITH_DESC if os.path.exists(PATH_WITH_DESC) else PATH_ORIGINAL
+    if not os.path.exists(csv_path):
+        return False
+
+    with st.spinner("⏳ 벡터 데이터베이스를 구축하고 있습니다. (최초 1회만 소요)"):
+        df = pd.read_csv(csv_path)
+        df["Rank"] = pd.to_numeric(df["Rank"], errors="coerce").fillna(999).astype(int)
+        df["Price"] = pd.to_numeric(df["Price"], errors="coerce").fillna(0).astype(int)
+        df["Rating"] = pd.to_numeric(df["Rating"], errors="coerce").fillna(0.0)
+        df["ReviewCount"] = pd.to_numeric(df["ReviewCount"], errors="coerce").fillna(0).astype(int)
+
+        model = SentenceTransformer(EMBED_MODEL_NAME)
+
+        documents, metadatas, ids = [], [], []
+        for _, row in df.iterrows():
+            title = str(row.get("Title", "")).strip()
+            desc = re.sub(r"<[^>]*>", " ", str(row.get("Description", "")))
+            desc = re.sub(r"[^\w\s가-힣]", " ", desc)
+            desc = re.sub(r"\s+", " ", desc).strip()
+            text = f"{title}. {desc}" if desc else title
+
+            documents.append(text)
+            metadatas.append({
+                "rank": int(row["Rank"]),
+                "title": title,
+                "author": str(row.get("Author", "")),
+                "publisher": str(row.get("Publisher", "")),
+                "publish_date": str(row.get("PublishDate", "")),
+                "price": int(row["Price"]),
+                "rating": float(row["Rating"]),
+                "review_count": int(row["ReviewCount"]),
+                "link": str(row.get("Link", "")),
+            })
+            ids.append(f"book_{row['Rank']}")
+
+        embeddings = model.encode(documents, show_progress_bar=False, batch_size=32).tolist()
+
+        client = chromadb.PersistentClient(path=CHROMA_DIR)
+        try:
+            client.delete_collection(COLLECTION_NAME)
+        except Exception:
+            pass
+
+        collection = client.create_collection(
+            name=COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine"},
+        )
+
+        BATCH = 500
+        for i in range(0, len(documents), BATCH):
+            end = min(i + BATCH, len(documents))
+            collection.add(
+                ids=ids[i:end],
+                documents=documents[i:end],
+                embeddings=embeddings[i:end],
+                metadatas=metadatas[i:end],
+            )
+
+    return True
+
+
 def vector_search(query: str, top_n: int = 10):
     """ChromaDB에서 의미 기반 유사 도서를 검색한다."""
     collection = load_chroma_collection()
@@ -685,12 +757,17 @@ with tab_chat:
         )
         st.stop()
 
-    # 벡터 DB 상태 확인
+    # 벡터 DB 상태 확인 (없으면 자동 구축)
+    if not build_vectordb_if_needed():
+        st.warning(
+            "⚠️ 벡터 데이터베이스를 구축할 수 없습니다. CSV 데이터 파일이 있는지 확인해 주세요."
+        )
+        st.stop()
+
     collection = load_chroma_collection()
     if collection is None:
         st.warning(
-            "⚠️ 벡터 데이터베이스가 없습니다. 먼저 아래 명령으로 구축해 주세요:\n\n"
-            "```bash\npython src/build_vectordb.py\n```"
+            "⚠️ 벡터 데이터베이스 로드에 실패했습니다. 다시 시도해 주세요."
         )
         st.stop()
 
