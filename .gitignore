@@ -1,0 +1,43 @@
+# PowerPoint files
+*.ppt
+*.pptx
+
+# Excel files
+*.xls
+*.xlsx
+*.xlsm
+~$*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# VectorDB (generated)
+data/chroma_db/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+Thumbs.db
+Desktop.ini
+.DS_Store
+temp_page.html
+
+# Build artifacts
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
